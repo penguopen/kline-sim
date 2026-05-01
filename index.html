@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🐧 PENGU K-Line 模擬器</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    user-select: none;
+  }
+
+  /* ===== HEADER ===== */
+  .header {
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #21262d;
+    flex-shrink: 0;
+  }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .pengu-icon { font-size: 28px; }
+  .title-text { font-size: 18px; font-weight: 700; color: #f0f6fc; }
+  .title-text span { color: #58a6ff; }
+  .price-display {
+    text-align: right;
+  }
+  .price-current {
+    font-size: 28px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    transition: color 0.3s;
+  }
+  .price-current.up { color: #3fb950; }
+  .price-current.down { color: #f85149; }
+  .price-change {
+    font-size: 13px;
+    color: #8b949e;
+  }
+  .price-change.up { color: #3fb950; }
+  .price-change.down { color: #f85149; }
+
+  /* ===== CHART ===== */
+  .chart-wrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  #chartCanvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* ===== OVERLAY EFFECTS ===== */
+  .flash-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .flash-overlay.pump {
+    background: radial-gradient(circle at 50% 50%, rgba(63,185,80,0.3) 0%, transparent 70%);
+    opacity: 0;
+  }
+  .flash-overlay.pump.active { opacity: 1; }
+  .flash-overlay.dump {
+    background: radial-gradient(circle at 50% 50%, rgba(248,81,73,0.3) 0%, transparent 70%);
+    opacity: 0;
+  }
+  .flash-overlay.dump.active { opacity: 1; }
+
+  /* ===== PARTICLES ===== */
+  .particle-container {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    z-index: 11;
+    overflow: hidden;
+  }
+  .particle {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+    animation: particleFly 1.2s ease-out forwards;
+  }
+  @keyframes particleFly {
+    0% { transform: translate(0,0) scale(1); opacity: 1; }
+    100% { transform: translate(var(--dx), var(--dy)) scale(0); opacity: 0; }
+  }
+
+  /* ===== EARTHQUAKE ===== */
+  .quake {
+    animation: shake 0.3s ease-in-out;
+  }
+  @keyframes shake {
+    0%, 100% { transform: translate(0,0); }
+    10% { transform: translate(-6px, 3px); }
+    20% { transform: translate(5px, -4px); }
+    30% { transform: translate(-4px, 2px); }
+    40% { transform: translate(7px, -2px); }
+    50% { transform: translate(-3px, 5px); }
+    60% { transform: translate(2px, -5px); }
+    70% { transform: translate(-5px, 3px); }
+    80% { transform: translate(6px, -3px); }
+    90% { transform: translate(-2px, 2px); }
+  }
+
+  /* ===== BOTTOM ===== */
+  .controls {
+    padding: 12px 20px;
+    display: flex;
+    gap: 12px;
+    border-top: 1px solid #21262d;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .btn {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn:active { transform: scale(0.95); }
+  .btn-pump {
+    background: linear-gradient(135deg, #238636, #2ea043);
+    color: #fff;
+    box-shadow: 0 0 20px rgba(46,160,67,0.3);
+  }
+  .btn-pump:hover { box-shadow: 0 0 35px rgba(46,160,67,0.6); }
+  .btn-dump {
+    background: linear-gradient(135deg, #b62324, #da3633);
+    color: #fff;
+    box-shadow: 0 0 20px rgba(218,54,51,0.3);
+  }
+  .btn-dump:hover { box-shadow: 0 0 35px rgba(218,54,51,0.6); }
+  .btn-auto {
+    background: #21262d;
+    color: #e6edf3;
+    border: 1px solid #30363d;
+  }
+  .btn-auto.active {
+    background: #1f6feb;
+    border-color: #1f6feb;
+    color: #fff;
+  }
+  .btn-clear {
+    background: #161b22;
+    color: #8b949e;
+    border: 1px solid #30363d;
+    font-size: 13px;
+  }
+  .stat-label {
+    font-size: 13px;
+    color: #8b949e;
+    margin-left: auto;
+  }
+  .stat-label span {
+    color: #e6edf3;
+    font-weight: 600;
+  }
+
+  /* ===== RESPONSIVE ===== */
+  @media (max-width: 600px) {
+    .header { padding: 8px 12px; }
+    .title-text { font-size: 14px; }
+    .price-current { font-size: 20px; }
+    .controls { padding: 8px 12px; gap: 8px; }
+    .btn { padding: 8px 16px; font-size: 13px; }
+    .stat-label { font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Flash Overlay -->
+<div id="flashOverlay" class="flash-overlay"></div>
+<!-- Particle Container -->
+<div id="particleContainer" class="particle-container"></div>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-left">
+    <span class="pengu-icon">🐧</span>
+    <div class="title-text">PENGU <span>K-Line</span></div>
+  </div>
+  <div class="price-display">
+    <div class="price-current up" id="priceCurrent">$0.01000</div>
+    <div class="price-change up" id="priceChange">▲ +0.00%</div>
+  </div>
+</div>
+
+<!-- CHART -->
+<div class="chart-wrap" id="chartWrap">
+  <canvas id="chartCanvas"></canvas>
+</div>
+
+<!-- CONTROLS -->
+<div class="controls">
+  <button class="btn btn-pump" id="btnPump">🚀 暴漲</button>
+  <button class="btn btn-dump" id="btnDump">💥 崩盤</button>
+  <button class="btn btn-auto active" id="btnAuto">▶ 自動</button>
+  <button class="btn btn-clear" id="btnClear">⟳ 重置</button>
+  <div class="stat-label">
+    蠟燭: <span id="candleCount">0</span>
+    &nbsp;|&nbsp; 高低: <span id="rangeLabel">—</span>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  PENGU K-LINE SIMULATOR
+// ============================================================
+
+// ── Audio Engine ──────────────────────────────────────────────
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new AudioCtx();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playPumpSound() {
+  ensureAudio();
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  // Ascending sweep: 300Hz → 1200Hz over 0.4s
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(300, now);
+  osc.frequency.exponentialRampToValueAtTime(1200, now + 0.4);
+  gain.gain.setValueAtTime(0.08, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now + 0.5);
+
+  // Sub bass thump
+  const osc2 = audioCtx.createOscillator();
+  const gain2 = audioCtx.createGain();
+  osc2.type = 'sine';
+  osc2.frequency.setValueAtTime(80, now);
+  osc2.frequency.exponentialRampToValueAtTime(200, now + 0.15);
+  gain2.gain.setValueAtTime(0.12, now);
+  gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+  osc2.connect(gain2).connect(audioCtx.destination);
+  osc2.start(now);
+  osc2.stop(now + 0.3);
+}
+
+function playDumpSound() {
+  ensureAudio();
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  // Descending crash: 800Hz → 60Hz
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(800, now);
+  osc.frequency.exponentialRampToValueAtTime(60, now + 0.5);
+  gain.gain.setValueAtTime(0.1, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now + 0.6);
+
+  // Noise burst
+  const bufferSize = audioCtx.sampleRate * 0.25;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 3);
+  }
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buffer;
+  const gainN = audioCtx.createGain();
+  gainN.gain.setValueAtTime(0.06, now);
+  gainN.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+  noise.connect(gainN).connect(audioCtx.destination);
+  noise.start(now);
+}
+
+// ── Particles ────────────────────────────────────────────────
+function spawnParticles(isPump, count = 40) {
+  const container = document.getElementById('particleContainer');
+  const colors = isPump
+    ? ['#3fb950','#2ea043','#7ee787','#238636','#56d364']
+    : ['#f85149','#da3633','#ff7b72','#b62324','#ffa198'];
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('div');
+    el.className = 'particle';
+    const size = 3 + Math.random() * 6;
+    const x = 30 + Math.random() * 40; // vw center
+    const y = 20 + Math.random() * 40;
+    el.style.cssText = `
+      left:${x}vw; top:${y}vh;
+      width:${size}px; height:${size}px;
+      background:${colors[Math.floor(Math.random()*colors.length)]};
+      --dx:${(Math.random()-0.5)*200}px;
+      --dy:${isPump ? '-' : ''}${100 + Math.random()*250}px;
+      animation-duration:${0.8 + Math.random()*0.8}s;
+    `;
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 2000);
+  }
+}
+
+// ── Flash ────────────────────────────────────────────────────
+function triggerFlash(isPump) {
+  const el = document.getElementById('flashOverlay');
+  el.className = 'flash-overlay ' + (isPump ? 'pump' : 'dump');
+  el.classList.add('active');
+  setTimeout(() => el.classList.remove('active'), 300);
+}
+
+// ── Earthquake ───────────────────────────────────────────────
+function triggerQuake() {
+  const wrap = document.getElementById('chartWrap');
+  wrap.classList.remove('quake');
+  void wrap.offsetWidth; // reflow
+  wrap.classList.add('quake');
+  setTimeout(() => wrap.classList.remove('quake'), 400);
+}
+
+// ── Candle Data ──────────────────────────────────────────────
+let candles = [];
+let currentPrice = 0.01000;
+const BASE_PRICE = 0.01000;
+let autoMode = true;
+let autoTimer = null;
+let candleCount = 0;
+
+function generateInitialCandles(count = 80) {
+  candles = [];
+  let price = BASE_PRICE;
+  for (let i = 0; i < count; i++) {
+    const open = price;
+    const change = (Math.random() - 0.48) * price * 0.012;
+    const close = open + change;
+    const high = Math.max(open, close) + Math.random() * price * 0.006;
+    const low = Math.min(open, close) - Math.random() * price * 0.006;
+    candles.push({ open, high, low, close });
+    price = close;
+  }
+  currentPrice = price;
+  candleCount = count;
+  updatePriceDisplay();
+}
+
+function makeCandle(open, forceDir = null) {
+  let change;
+  if (forceDir === 'pump') {
+    change = open * (0.015 + Math.random() * 0.035);
+  } else if (forceDir === 'dump') {
+    change = -open * (0.015 + Math.random() * 0.035);
+  } else {
+    change = (Math.random() - 0.46) * open * 0.014;
+    change += open * 0.0005;
+  }
+  const close = open + change;
+  const volatility = Math.abs(change) * 0.4 + open * 0.002;
+  const high = Math.max(open, close) + Math.random() * volatility;
+  const low = Math.min(open, close) - Math.random() * volatility;
+  return { open, high, low, close };
+}
+
+function addCandle(forceDir = null) {
+  const c = makeCandle(currentPrice, forceDir);
+  candles.push(c);
+  if (candles.length > 200) candles.shift();
+  currentPrice = c.close;
+  candleCount++;
+  updatePriceDisplay();
+  redraw();
+  updateStats();
+}
+
+function addBatchCandle(dir, count = 6) {
+  // Add all candles first, draw once at end for performance & correctness
+  for (let i = 0; i < count; i++) {
+    const c = makeCandle(currentPrice, dir);
+    candles.push(c);
+    if (candles.length > 200) candles.shift();
+    currentPrice = c.close;
+    candleCount++;
+  }
+  updatePriceDisplay();
+  updateStats();
+  redraw();
+}
+
+// ── Redraw ───────────────────────────────────────────────────
+let redrawQueued = false;
+function redraw() {
+  if (redrawQueued) return;
+  redrawQueued = true;
+  requestAnimationFrame(() => {
+    redrawQueued = false;
+    drawChart();
+  });
+}
+
+// ── Price Display ────────────────────────────────────────────
+function updatePriceDisplay() {
+  const el = document.getElementById('priceCurrent');
+  const ch = document.getElementById('priceChange');
+  const change = ((currentPrice - BASE_PRICE) / BASE_PRICE) * 100;
+  el.textContent = '$' + currentPrice.toFixed(5);
+  ch.textContent = (change >= 0 ? '▲' : '▼') + ' ' + Math.abs(change).toFixed(2) + '%';
+  el.className = 'price-current ' + (change >= 0 ? 'up' : 'down');
+  ch.className = 'price-change ' + (change >= 0 ? 'up' : 'down');
+  document.title = '🐧 $' + currentPrice.toFixed(5) + ' | PENGU K-Line';
+}
+
+// ── Draw Chart ───────────────────────────────────────────────
+function drawChart() {
+  const canvas = document.getElementById('chartCanvas');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const W = rect.width;
+  const H = rect.height;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const pad = { top: 20, bottom: 25, left: 55, right: 15 };
+  const cw = W - pad.left - pad.right;
+  const ch = H - pad.top - pad.bottom;
+
+  if (candles.length < 2) return;
+
+  // Only show the last MAX_VISIBLE candles so they never get too small
+  const MAX_VISIBLE = 60;
+  const visible = candles.length > MAX_VISIBLE
+    ? candles.slice(candles.length - MAX_VISIBLE)
+    : candles;
+  const vLen = visible.length;
+
+  // Recalculate range from VISIBLE candles (matches what's on screen)
+  let minP = Infinity, maxP = -Infinity;
+  for (const c of visible) {
+    if (c.low < minP) minP = c.low;
+    if (c.high > maxP) maxP = c.high;
+  }
+  const range = maxP - minP || 0.001;
+  const padding = range * 0.12;  // 12% padding for breathing room
+  minP -= padding;
+  maxP += padding;
+  const adjRange = maxP - minP;
+
+  // Dynamic decimal places based on price level
+  function fmtPrice(p) {
+    if (p >= 1) return '$' + p.toFixed(4);
+    if (p >= 0.1) return '$' + p.toFixed(5);
+    if (p >= 0.01) return '$' + p.toFixed(6);
+    return '$' + p.toFixed(7);
+  }
+
+  function yPos(price) {
+    return pad.top + ch - ((price - minP) / (maxP - minP)) * ch;
+  }
+
+  const candleW = Math.min(14, (cw / MAX_VISIBLE) * 0.85);
+  const gap = Math.min(3, (cw - candleW * vLen) / (vLen + 1));
+  const startX = pad.left + gap;
+
+  // Clear
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid lines with price labels
+  ctx.strokeStyle = '#161b22';
+  ctx.lineWidth = 1;
+  const gridLines = 6;
+  for (let i = 0; i <= gridLines; i++) {
+    const y = pad.top + (ch / gridLines) * i;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(W - pad.right, y);
+    ctx.stroke();
+    const price = maxP - (adjRange / gridLines) * i;
+    ctx.fillStyle = '#484f58';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(fmtPrice(price), pad.left - 6, y + 4);
+  }
+
+  // Volume bars (simplified)
+  const maxVol = 100;
+  for (let i = 0; i < vLen; i++) {
+    const c = visible[i];
+    const x = startX + i * (candleW + gap);
+    const isUp = c.close >= c.open;
+    const vol = 30 + Math.abs(c.close - c.open) / (adjRange) * 200;
+    const volH = Math.min(ch * 0.15, vol / maxVol * (ch * 0.12));
+    ctx.fillStyle = isUp ? 'rgba(63,185,80,0.15)' : 'rgba(248,81,73,0.15)';
+    ctx.fillRect(x, H - pad.bottom - volH, candleW, volH);
+  }
+
+  // Candles
+  for (let i = 0; i < vLen; i++) {
+    const c = visible[i];
+    const x = startX + i * (candleW + gap);
+    const isUp = c.close >= c.open;
+
+    const yOpen = yPos(c.open);
+    const yClose = yPos(c.close);
+    const yHigh = yPos(c.high);
+    const yLow = yPos(c.low);
+
+    ctx.strokeStyle = isUp ? '#3fb950' : '#f85149';
+    ctx.fillStyle = isUp ? '#3fb950' : '#f85149';
+    ctx.lineWidth = 1.5;
+
+    // Wick
+    ctx.beginPath();
+    ctx.moveTo(x + candleW / 2, yHigh);
+    ctx.lineTo(x + candleW / 2, yLow);
+    ctx.stroke();
+
+    // Body
+    const bodyTop = Math.min(yOpen, yClose);
+    const bodyH = Math.max(Math.abs(yClose - yOpen), 1);
+    ctx.fillRect(x, bodyTop, candleW, bodyH);
+  }
+
+  // Latest price line
+  if (visible.length > 0) {
+    const last = visible[visible.length - 1];
+    const y = yPos(last.close);
+    ctx.strokeStyle = 'rgba(230,237,243,0.15)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(W - pad.right, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+// ── Stats ────────────────────────────────────────────────────
+function updateStats() {
+  document.getElementById('candleCount').textContent = candles.length;
+  if (candles.length > 0) {
+    let min = Infinity, max = -Infinity;
+    for (const c of candles) {
+      if (c.high > max) max = c.high;
+      if (c.low < min) min = c.low;
+    }
+    document.getElementById('rangeLabel').textContent =
+      '$' + min.toFixed(4) + ' ~ $' + max.toFixed(4);
+  }
+}
+
+// ── Trigger Pump ─────────────────────────────────────────────
+function triggerPump() {
+  playPumpSound();
+  triggerFlash(true);
+  spawnParticles(true, 50);
+  addBatchCandle('pump', 8);
+  triggerQuake();
+}
+
+// ── Trigger Dump ─────────────────────────────────────────────
+function triggerDump() {
+  playDumpSound();
+  triggerFlash(false);
+  spawnParticles(false, 50);
+  addBatchCandle('dump', 8);
+  triggerQuake();
+}
+
+// ── Auto Mode ────────────────────────────────────────────────
+function toggleAuto() {
+  autoMode = !autoMode;
+  const btn = document.getElementById('btnAuto');
+  btn.textContent = autoMode ? '▶ 自動' : '⏸ 暫停';
+  btn.className = 'btn btn-auto ' + (autoMode ? 'active' : '');
+  if (autoMode) startAuto();
+  else stopAuto();
+}
+
+function startAuto() {
+  stopAuto();
+  autoTimer = setInterval(() => {
+    if (!autoMode) return;
+    // Random chance of extreme event
+    const r = Math.random();
+    if (r < 0.02) {
+      // 2% chance of mini pump/dump
+      if (Math.random() > 0.5) {
+        playPumpSound();
+        triggerFlash(true);
+        spawnParticles(true, 20);
+        addBatchCandle('pump', 3);
+      } else {
+        playDumpSound();
+        triggerFlash(false);
+        spawnParticles(false, 20);
+        addBatchCandle('dump', 3);
+      }
+    } else {
+      addCandle();
+    }
+  }, 900);
+}
+
+function stopAuto() {
+  if (autoTimer) clearInterval(autoTimer);
+  autoTimer = null;
+}
+
+// ── Reset ────────────────────────────────────────────────────
+function resetChart() {
+  stopAuto();
+  generateInitialCandles(60);
+  drawChart();
+  updateStats();
+  if (autoMode) startAuto();
+}
+
+// ── Resize ───────────────────────────────────────────────────
+let resizeTimer = null;
+function onResize() {
+  if (resizeTimer) clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => drawChart(), 150);
+}
+
+// ── Init ─────────────────────────────────────────────────────
+function init() {
+  generateInitialCandles(60);
+  drawChart();
+  updateStats();
+  startAuto();
+
+  // Buttons
+  document.getElementById('btnPump').addEventListener('click', triggerPump);
+  document.getElementById('btnDump').addEventListener('click', triggerDump);
+  document.getElementById('btnAuto').addEventListener('click', toggleAuto);
+  document.getElementById('btnClear').addEventListener('click', resetChart);
+
+  window.addEventListener('resize', onResize);
+
+  // Force audio context unlock on first user interaction
+  const unlockAudio = () => {
+    ensureAudio();
+    document.removeEventListener('click', unlockAudio);
+    document.removeEventListener('touchstart', unlockAudio);
+  };
+  document.addEventListener('click', unlockAudio);
+  document.addEventListener('touchstart', unlockAudio);
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
